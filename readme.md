@@ -67,3 +67,63 @@ MySQL BY 8.0.42 ver.
   - 변경이 너무 많이 발생할 경우 공통코드 테이블만 활용하는 것도 전략.
 - 동기화 전략 : CI/CD with test case or 서버 실행 시 검증, 반드시 필수.
 
+## 4. 계층 구조 설계
+
+- 2차원 평면 구조의 테이블의 데이터 계층 구조를 설계하고 표현하기 위한 다양한 방법(패턴)
+
+> 인접리스트 모델
+- 자식 노드가 부모 노드 데이터를 함께 가지고 있는 형태로, 자기참조 외래키를 보유하고 있는 구조.
+- Self join에 의해 Self Referencing이 이루어지는 구조이다.
+  - 직관적이면서, 참조 무결성 조건을 걸 수 있기에 일관성 보장이 가능하다.
+  - 데이터 추가 및 수정이 비교적 간단한 형태이다.
+
+> - CTE 및 재귀 쿼리를 통한 쿼리 체계화/계층화
+  - 인접리스트 구조로 되어있는 데이터 구조에서, 계층 깊이가 가변적인 상황에서 유연하게 대응할 수 있도록 SQL 표준으로 제공하는 쿼리 형태.
+  - CTE(하나의 테이블로 사용하는 결과 집합, 임시 View)에 재귀쿼리를 적용하여 활용.
+
+```sql
+WITH RECURSIVE employees AS (
+    SELECT .. FROM EMPLOYEE employee
+    
+    UNION ALL
+    
+    SELECT * , e2.depth + 1 FROM EMPLOYEE employee e1
+    JOIN employees e2 on e1.employee_id = e2.parent_id 
+) 
+SELECT * FROM employees;
+```
+> 폐쇄 테이블 모델(Closure Table Model)
+- 인접 리스트 모델이 가지는 쿼리 복잡도 증가 및 조회 성능 하락을 보완하는 구조
+- 기존 인접 리스트 모델에서의 직속 부모 참조 관계가 아닌, 모든 깊이의 자손을 참조하는 관계
+  - 계층구조의 내역, 노드에 해당하는 정보와 계층 구조의 관계(path)에 해당하는 정보 분리 운용.
+  - 관계도 먼저 추출(path/where path.ancestor_id) + 노드 정보 추출(path.descedant_id = node.id)
+
+```sql
+SELECT * 
+FROM employee e
+JOIN employee_path ep 
+ON e.employee_id = ep.descendant_id = e.employee_id
+--WHERE e.employee_id = 1
+WHERE ep.ancestor_id = 1;
+;
+```
+
+혹은
+
+```sql
+SELECT * 
+FROM employee e
+JOIN employee_path ep 
+ON e.employee_id = ep.ancestor_id = e.employee_id
+--WHERE e.employee_id = 1
+WHERE ep.descedant_id = 5;
+;
+```
+
+> 폐쇄 테이블 모델은 대규모 데이터에 대해서 적용하는 것이 바람직.
+- 두개로 분리 운용되는 테이블, 경로 추가 및 삭제 시 규칙 정립이 필요하는 등 세부적인 데이터 관리가 매우 복잡하다. 
+- 복잡한 만큼 조회 시 빠르고 안정적인 성능을 낼 수 있다. 
+  - 쓰기보다는 조회가 매우 빈번하게 발생하고, 데이터 및 카테고리 등 분류 단계가 복잡하고 많은 대규모 데이터에 대해 적용 적합.
+
+**실무에서는 인접리스트 모델 + CTE/재귀로 충분히 가능, 데이터가 압도적으로 방대해질 경우 폐쇄 테이블 모델 적용을 적극 고려해볼만하다.**
+
